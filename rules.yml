@@ -1,0 +1,19 @@
+# Filled in by the setup interview (see SETUP.md). Triage reads this file to decide Work vs Perso.
+# Matching is a hint, not a hard rule: when signals conflict or none match, triage guesses and sets
+# needs_review: true.
+
+me: ""                   # who you are, e.g. "Product designer at Acme"
+language: "English"      # language of the daily brief (each task follows the language of its capture)
+timezone: Europe/London  # used to resolve "tomorrow", "Friday", "end of month"...
+
+# Name -> role. Names may appear in captures in short or nickname form.
+people:
+  work: {}               # e.g.  Alice: "my manager"
+  perso: {}              # e.g.  Tom: "brother"
+
+# Work projects, products or clients. Any mention means Work.
+projects: {}             # e.g.  APOLLO: "the mobile app we are building (also \"Apollo app\")"
+
+keywords:
+  work: []               # e.g.  [standup, sprint, invoice, client]
+  perso: []              # e.g.  [doctor, rent, birthday, groceries]

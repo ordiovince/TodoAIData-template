@@ -1,0 +1,40 @@
+name: Maintain indexes
+
+# Safety net. The phone keeps index.json in sync itself and commits with [skip ci], so this only runs for
+# hand edits, nightly (7-day auto-archive when the app was not opened), or on demand.
+on:
+  push:
+    branches: [main]
+    paths: ["tasks/**", "archive/**"]
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: maintain
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  maintain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - run: pip install -r requirements.txt
+
+      - name: Archive stale tasks and rebuild indexes
+        run: |
+          scripts/publish.sh "chore: archive stale tasks and rebuild indexes" \
+            bash -c 'python3 scripts/todoai.py archive-stale && python3 scripts/todoai.py build'
+
+      - name: Fail on invalid task files
+        run: python3 scripts/todoai.py build --strict

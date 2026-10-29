@@ -1,0 +1,58 @@
+name: Daily brief
+
+# Each morning Claude reads the board and writes briefs/<date>.md, which the app shows as a card.
+# The cron is in UTC (set by the setup interview from your wake-up time; GitHub has no time zones).
+on:
+  schedule:
+    - cron: "13 5 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: brief
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  brief:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - run: pip install -r requirements.txt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Write the brief with Claude
+        id: brief
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          ZONE="$(python3 -c "import yaml; print(yaml.safe_load(open('rules.yml')).get('timezone') or 'UTC')")"
+          DATE="$(TZ=$ZONE date +%F)"
+          echo "date=$DATE" >> "$GITHUB_OUTPUT"
+          npm install -g --silent @anthropic-ai/claude-code
+          claude -p "Write today's brief, briefs/$DATE.md, following BRIEF.md exactly. Today is $(TZ=$ZONE date '+%A %d %B %Y'). Create only that file." \
+            --model opus \
+            --max-turns 20 \
+            --allowedTools "Read,Write,Glob,Grep" \
+            --disallowedTools "WebFetch,WebSearch,Bash,Edit"
+
+      - name: Publish the brief
+        env:
+          RESTORE_DIR: .triage/brief
+        run: |
+          mkdir -p .triage/brief/briefs && cp "briefs/${{ steps.brief.outputs.date }}.md" .triage/brief/briefs/
+          scripts/publish.sh "brief: ${{ steps.brief.outputs.date }}" \
+            python3 scripts/todoai.py brief-check "${{ steps.brief.outputs.date }}"

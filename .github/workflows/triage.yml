@@ -1,0 +1,66 @@
+name: Triage inbox
+
+# Runs when the phone pushes a capture to inbox/. One run handles every capture present at its start;
+# captures that arrive mid-run queue one more run (the concurrency group keeps at most one pending).
+on:
+  push:
+    branches: [main]
+    paths: ["inbox/*.md"]
+  workflow_dispatch:
+
+concurrency:
+  group: triage
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # Latest main, not the triggering commit: a queued run must see what the previous run published.
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - run: pip install -r requirements.txt
+
+      - name: Snapshot inbox
+        id: snap
+        run: echo "count=$(python3 scripts/todoai.py snapshot)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        if: steps.snap.outputs.count != '0'
+        with:
+          node-version: "22"
+
+      # The CLI directly, not anthropics/claude-code-action: the action rejects `push` events.
+      - name: Triage with Claude
+        if: steps.snap.outputs.count != '0'
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          npm install -g --silent @anthropic-ai/claude-code
+          claude -p "Triage the captures listed in .triage/snapshot.txt (one capture id per line, file inbox/<id>.md), following CLAUDE.md exactly. Only create new files under tasks/ or .triage/skipped/, and edit a task file only when an edit request targets it. Finish by running python3 scripts/todoai.py validate until every new task file is valid." \
+            --model opus \
+            --max-turns 40 \
+            --allowedTools "Read,Write,Edit,Glob,Grep,Bash(python3 scripts/todoai.py validate:*)" \
+            --disallowedTools "WebFetch,WebSearch"
+
+      - name: Publish tasks and rebuild indexes
+        if: steps.snap.outputs.count != '0'
+        env:
+          RESTORE_DIR: .triage/out
+        run: |
+          mkdir -p .triage/out
+          # New tasks plus tasks edited for edit requests, restored if the push has to be redone.
+          { git ls-files --others --exclude-standard -- tasks; git diff --name-only -- tasks; } | xargs -r cp --parents -t .triage/out
+          scripts/publish.sh "triage: ${{ steps.snap.outputs.count }} capture(s)" \
+            bash -c 'python3 scripts/todoai.py finalize && python3 scripts/todoai.py build'

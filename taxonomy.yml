@@ -1,0 +1,26 @@
+# Allowed categories per scope. Triage only uses these; anything new goes to
+# `proposed_categories` on the task and you approve it in the app (which adds it here).
+# The setup interview replaces this starter list with one that fits you.
+Work:
+  - Meeting
+  - Email
+  - Planning
+  - Project
+  - Review
+  - Bug
+  - Docs
+  - Team
+  - Hiring
+  - Admin
+Perso:
+  - Admin
+  - Finance
+  - Health
+  - Home
+  - Family
+  - Social
+  - Shopping
+  - Travel
+  - Car
+  - Learning
+  - Hobby
