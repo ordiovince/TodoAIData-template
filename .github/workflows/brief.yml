@@ -16,6 +16,8 @@ permissions:
 
 jobs:
   brief:
+    # Not in the template repository itself, only in copies made from it.
+    if: ${{ !endsWith(github.repository, '-template') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
