@@ -2,9 +2,15 @@ name: Daily brief
 
 # Each morning Claude reads the board and writes briefs/<date>.md, which the app shows as a card.
 # The cron is in UTC (set by the setup interview from your wake-up time; GitHub has no time zones).
+# GitHub starts scheduled runs late (hours, at busy times), so the app also asks for the brief: from 6:00, if
+# today's is missing, it commits the date to requests/brief, and that push starts this workflow.
+# Every run skips when today's brief already exists.
 on:
   schedule:
     - cron: "13 5 * * *"
+  push:
+    branches: [main]
+    paths: ["requests/brief"]
   workflow_dispatch:
 
 concurrency:
@@ -32,12 +38,21 @@ jobs:
           cache-dependency-path: requirements.txt
       - run: pip install -r requirements.txt
 
+      - name: Today's brief already written?
+        id: check
+        run: |
+          ZONE="$(python3 -c "import yaml; print(yaml.safe_load(open('rules.yml')).get('timezone') or 'UTC')")"
+          DATE="$(TZ=$ZONE date +%F)"
+          if [ -f "briefs/$DATE.md" ]; then echo "briefs/$DATE.md exists, nothing to do"; echo "skip=true" >> "$GITHUB_OUTPUT"; fi
+
       - uses: actions/setup-node@v4
+        if: steps.check.outputs.skip != 'true'
         with:
           node-version: "22"
 
       - name: Write the brief with Claude
         id: brief
+        if: steps.check.outputs.skip != 'true'
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
@@ -52,6 +67,7 @@ jobs:
             --disallowedTools "WebFetch,WebSearch,Bash,Edit"
 
       - name: Publish the brief
+        if: steps.check.outputs.skip != 'true'
         env:
           RESTORE_DIR: .triage/brief
         run: |
