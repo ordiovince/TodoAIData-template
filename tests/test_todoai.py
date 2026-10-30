@@ -175,6 +175,31 @@ class FinalizeTests(Repo):
         self.assertIn("no task produced", (self.dir / "inbox/failed/20261027-090000-cccc.md").read_text())
         self.assertTrue((self.dir / "inbox/20261027-091500-dddd.md").exists())
 
+    def test_people_suggestions_are_merged_once_and_known_names_dropped(self):
+        self.write("rules.yml", 'people:\n  work:\n    Alice: "team"\n  perso: {}\n  ignored: ["Bob"]\n')
+        self.capture("20261027-090000-aaaa")
+        self.capture("20261027-090000-bbbb")
+        self.write("people.json", json.dumps({"version": 1, "people": [
+            {"name": "Alice", "scope": "Work", "role": "x", "why": "y", "task_id": None, "seen_at": None},  # in rules.yml now
+            {"name": "Jo", "scope": "Perso", "role": "neighbour", "why": "w", "task_id": None, "seen_at": None},
+        ]}))
+        self.commit_all()
+        self.run_cmd("snapshot")
+        self.write("tasks/20261027-090000-aaaa-1.md", task("20261027-090000-aaaa-1"))
+        self.write(".triage/people/20261027-090000-aaaa.json", json.dumps([
+            {"name": "Sam", "scope": "Work", "role": "QA tester", "why": "Reports the crash"},
+            {"name": "jo", "scope": "Perso", "role": "", "why": ""},       # already suggested
+            {"name": "bob", "scope": "Work", "role": "", "why": ""},       # ignored in rules.yml
+            {"name": "Acme", "scope": "Client", "role": "", "why": ""},     # invalid scope
+        ]))
+        self.write(".triage/people/20261027-090000-bbbb.json", json.dumps([{"name": "Ghost", "scope": "Work"}]))  # not consumed
+        r = self.run_cmd("finalize")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        people = self.json("people.json")["people"]
+        self.assertEqual(["Jo", "Sam"], [p["name"] for p in people])
+        self.assertEqual({"name": "Sam", "scope": "Work", "role": "QA tester", "why": "Reports the crash",
+                          "task_id": "20261027-090000-aaaa-1", "seen_at": "2026-10-27T09:00:00Z"}, people[1])
+
     def test_new_tasks_get_source_app_and_attachments(self):
         self.write("inbox/20261027-090000-aaaa.md", '---\ncaptured_at: "2026-10-27T09:00:00Z"\nsource: "com.Slack"\nsubject: null\n'
                    'attachments: ["attachments/20261027-090000-aaaa/1.jpg", "attachments/20261027-090000-ffff/1.jpg"]\n---\nsee screenshot\n')

@@ -32,6 +32,9 @@ TRIAGE = ROOT / ".triage"
 SNAPSHOT = TRIAGE / "snapshot.txt"
 SKIPPED = TRIAGE / "skipped"
 BRIEFS = ROOT / "briefs"
+PEOPLE_DIR = TRIAGE / "people"      # Claude's suggestions, one JSON list per capture (ignored by git)
+PEOPLE_FILE = ROOT / "people.json"  # pending suggestions, shown in the app's Review tab
+PEOPLE_MAX = 30
 BRIEF_KEEP_DAYS = 14
 
 INDEX_VERSION = 1
@@ -306,6 +309,64 @@ def cmd_validate(args) -> int:
     return 1 if bad else 0
 
 
+def known_people() -> set[str]:
+    """Names already in rules.yml (work, perso, or ignored), lower-cased."""
+    rules = yaml.safe_load((ROOT / "rules.yml").read_text(encoding="utf-8")) or {}
+    people = rules.get("people") or {}
+    names = set()
+    for key in ("work", "perso"):
+        names.update(str(n) for n in (people.get(key) or {}))
+    names.update(str(n) for n in (people.get("ignored") or []))
+    return {n.strip().lower() for n in names}
+
+
+def load_people() -> list[dict]:
+    if not PEOPLE_FILE.exists():
+        return []
+    return list((json.loads(PEOPLE_FILE.read_text(encoding="utf-8")) or {}).get("people") or [])
+
+
+def clean_suggestion(raw) -> dict | None:
+    if not isinstance(raw, dict):
+        return None
+    name = str(raw.get("name") or "").strip()
+    scope = raw.get("scope")
+    if not (0 < len(name) <= 60) or "\n" in name or scope not in ("Work", "Perso"):
+        return None
+    return {
+        "name": name,
+        "scope": scope,
+        "role": str(raw.get("role") or "").strip()[:80],
+        "why": str(raw.get("why") or "").strip()[:200],
+    }
+
+
+def merge_people(consumed: set[str]) -> None:
+    """Adds Claude's suggestions for consumed captures to people.json; drops names rules.yml now knows."""
+    known = known_people()
+    people = [p for p in load_people() if str(p.get("name", "")).strip().lower() not in known]
+    seen = {p["name"].lower() for p in people}
+    for cid in sorted(consumed):
+        f = PEOPLE_DIR / f"{cid}.json"
+        if not f.exists():
+            continue
+        try:
+            raw = json.loads(f.read_text(encoding="utf-8"))
+        except ValueError:
+            print(f"ignored {f.name}: not JSON")
+            continue
+        tasks = sorted(p.stem for p in TASKS.glob(f"{cid}-*.md"))
+        for item in raw if isinstance(raw, list) else []:
+            s = clean_suggestion(item)
+            if s is None or s["name"].lower() in known or s["name"].lower() in seen:
+                continue
+            seen.add(s["name"].lower())
+            people.append({**s, "task_id": tasks[0] if tasks else None, "seen_at": norm_datetime(capture_meta(cid).get("captured_at"))})
+    people = people[-PEOPLE_MAX:]
+    if people or PEOPLE_FILE.exists():
+        write_if_changed(PEOPLE_FILE, {"version": 1, "people": people})
+
+
 def cmd_finalize(_args) -> int:
     """Gate Claude's output, then delete consumed captures and move unconsumed ones to inbox/failed/."""
     snapshot = set(read_snapshot())
@@ -373,6 +434,9 @@ def cmd_finalize(_args) -> int:
         m = TASK_ID.match(path.stem)
         if m and m.group(1) in snapshot:
             consumed.add(m.group(1))
+
+    # Before the captures are deleted: suggestions record when the name was seen.
+    merge_people(consumed)
 
     # Leftovers whose capture was already handled (e.g. re-pushed by the app): just drop them.
     for src in INBOX.glob("*.md"):

@@ -52,7 +52,7 @@ If they don't know or want to skip something, leave it empty: triage still works
 
 ## Step 3: write the configuration
 
-- `rules.yml`: `me`, `language`, `timezone` (IANA name, e.g. `Europe/Paris`), `people.work`, `people.perso`
+- `rules.yml`: `me`, `language`, `timezone` (IANA name, e.g. `Europe/Paris`), `people.work`, `people.perso` (leave `people.ignored: []` in place)
   (name -> short role), `projects` (short name -> description with aliases), `keywords.work`, `keywords.perso`.
   Keep the comments at the top. Valid YAML; quote values that contain `:` or quotes.
 - `taxonomy.yml`: the agreed categories, `Work:` and `Perso:` lists (Title Case, no duplicates).

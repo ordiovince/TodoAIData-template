@@ -26,7 +26,7 @@ for attempt in 1 2 3 4 5; do
     fi
   fi
   "$@"
-  git add -A -- tasks archive inbox index.json briefs
+  git add -A -- tasks archive inbox index.json briefs $(ls people.json 2>/dev/null)
   if git diff --cached --quiet; then
     echo "nothing to publish"
     exit 0

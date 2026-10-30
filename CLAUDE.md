@@ -8,6 +8,7 @@ turn each raw message in `inbox/` into one or more task files in `tasks/`. Nothi
 - Read anything in the repo.
 - Create new files `tasks/<captureId>-<n>.md` for the captures listed in `.triage/snapshot.txt`.
 - Create `.triage/skipped/<captureId>.txt` (one line: the reason) for a capture that contains nothing actionable.
+- Create `.triage/people/<captureId>.json` to suggest people missing from `rules.yml`. See "People you don't know".
 - For an **edit request** (a capture with a `target`), edit that one task file. See "Edit requests" below.
 - Run `python3 scripts/todoai.py validate` and fix the files you created until it reports them all valid.
 
@@ -135,6 +136,21 @@ so do what it asks, but only to that task:
 - If the target file does not exist (archived or deleted), or the instruction makes no sense for it, write
   `.triage/skipped/<captureId>.txt` with the reason instead.
 - If you notice an existing `needs_review: true`, set it to `false` once the request has clarified what was unsure.
+
+## People you don't know
+
+When a capture names a person who matters for the task (the sender, the one waiting on you, the one to call...)
+and that name is not under `people.work`, `people.perso` or `people.ignored` in `rules.yml` (nicknames and short
+forms included), suggest them so the user can add them. Write `.triage/people/<captureId>.json`:
+
+```json
+[{"name": "Sam", "scope": "Work", "role": "QA tester on Apollo", "why": "Reports the login crash in the Slack thread"}]
+```
+
+- `name`: as written in the capture (first name or short form), `scope`: `"Work"` or `"Perso"`, `role`: a few words
+  the way `rules.yml` describes people, `why`: one short sentence from the capture.
+- Only real people relevant to the task: not companies, brands, authors of quoted articles or yourself.
+- Never edit `rules.yml` yourself: the user confirms each suggestion in the app.
 
 ## Not actionable
 

@@ -10,6 +10,8 @@ timezone: Europe/London  # used to resolve "tomorrow", "Friday", "end of month".
 people:
   work: {}               # e.g.  Alice: "my manager"
   perso: {}              # e.g.  Tom: "brother"
+  # Names never to suggest again (dismissed in the app's Review tab).
+  ignored: []
 
 # Work projects, products or clients. Any mention means Work.
 projects: {}             # e.g.  APOLLO: "the mobile app we are building (also \"Apollo app\")"
