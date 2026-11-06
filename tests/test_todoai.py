@@ -302,3 +302,49 @@ class FinalizeTests(Repo):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PausedTests(Repo):
+    LOG = "Some output\nYou've hit your 5-hour limit \u00b7 resets 2:30pm (UTC)\n"
+
+    def paused(self):
+        p = self.dir / "status" / "triage-paused"
+        return p.read_text(encoding="utf-8").splitlines() if p.exists() else None
+
+    def test_usage_limit_records_the_reset_time(self):
+        self.write(".triage/claude.log", self.LOG)
+        r = self.run_cmd("paused", "--log", ".triage/claude.log", "--now", "2026-11-06T12:19:40Z")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.paused(), ["2026-11-06T14:30:00Z", "hit your 5-hour limit \u00b7 resets 2:30pm (UTC)"])
+
+    def test_a_time_already_past_today_is_tomorrow(self):
+        self.write(".triage/claude.log", "You've hit your 5-hour limit \u00b7 resets 11am (UTC)")
+        self.run_cmd("paused", "--log", ".triage/claude.log", "--now", "2026-11-06T12:19:40Z")
+        self.assertEqual(self.paused()[0], "2026-11-07T11:00:00Z")
+
+    def test_weekly_limit_with_a_date_and_zone(self):
+        self.write(".triage/claude.log", "You've hit your weekly limit \u00b7 resets Nov 10, 9am (Europe/Paris)")
+        self.run_cmd("paused", "--log", ".triage/claude.log", "--now", "2026-11-06T12:19:40Z")
+        self.assertEqual(self.paused()[0], "2026-11-10T08:00:00Z")
+
+    def test_weekday_reset(self):
+        self.write(".triage/claude.log", "You've hit your weekly limit \u00b7 resets Mon 9am (UTC)")
+        self.run_cmd("paused", "--log", ".triage/claude.log", "--now", "2026-11-06T12:19:40Z")  # a Friday
+        self.assertEqual(self.paused()[0], "2026-11-09T09:00:00Z")
+
+    def test_unreadable_reset_time_retries_in_an_hour(self):
+        self.write(".triage/claude.log", "You've hit your weekly limit \u00b7 resets soon")
+        self.run_cmd("paused", "--log", ".triage/claude.log", "--now", "2026-11-06T12:19:40Z")
+        self.assertEqual(self.paused()[0], "2026-11-06T13:19:40Z")
+
+    def test_other_failures_are_not_a_pause(self):
+        self.write(".triage/claude.log", "Error: network unreachable")
+        r = self.run_cmd("paused", "--log", ".triage/claude.log")
+        self.assertEqual(r.returncode, 1)
+        self.assertIsNone(self.paused())
+
+    def test_clear(self):
+        self.write("status/triage-paused", "2026-11-06T14:30:00Z\nx\n")
+        self.assertEqual(self.run_cmd("paused", "--clear").returncode, 0)
+        self.assertIsNone(self.paused())
+        self.assertEqual(self.run_cmd("paused", "--clear").returncode, 0)  # nothing to clear: fine

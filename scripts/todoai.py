@@ -557,6 +557,76 @@ def cmd_brief_check(args) -> int:
     return 0
 
 
+PAUSED = ROOT / "status" / "triage-paused"
+LIMIT_MESSAGE = re.compile(r"hit your (?P<limit>[\w -]+?) limit\W+resets\s+(?P<when>[^\n]+)", re.IGNORECASE)
+MONTHS = ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
+WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+
+
+def parse_reset(when: str, now: dt.datetime) -> dt.datetime | None:
+    """When Claude's "resets 2:30pm (UTC)" / "resets Nov 10, 9am (Europe/Paris)" / "resets Mon 9am" happens, in UTC."""
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+    tz = dt.timezone.utc
+    if m := re.search(r"\(([^)]+)\)", when):
+        try:
+            tz = ZoneInfo(m.group(1).strip())
+        except (ZoneInfoNotFoundError, ValueError):
+            pass
+        when = when[:m.start()]
+    t = re.search(r"\b(\d{1,2})(?::(\d{2}))?\s*([ap]m)\b", when, re.IGNORECASE) or \
+        re.search(r"\b(\d{1,2}):(\d{2})\b()", when)
+    if not t:
+        return None
+    hour, minute = int(t.group(1)), int(t.group(2) or 0)
+    if ampm := t.group(3).lower():
+        if not 1 <= hour <= 12:
+            return None
+        hour = hour % 12 + (12 if ampm == "pm" else 0)
+    if hour > 23 or minute > 59:
+        return None
+    rest = when[:t.start()] + " " + when[t.end():]
+    local_now = now.astimezone(tz)
+    at = local_now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if m := re.search(r"\b(" + "|".join(MONTHS) + r")[a-z]*\.?\s+(\d{1,2})\b", rest, re.IGNORECASE):
+        month, day = MONTHS.index(m.group(1).lower()[:3]) + 1, int(m.group(2))
+        try:
+            at = at.replace(month=month, day=day)
+            if at <= local_now:
+                at = at.replace(year=at.year + 1)
+        except ValueError:
+            return None
+    elif m := re.search(r"\b(" + "|".join(WEEKDAYS) + r")[a-z]*\b", rest, re.IGNORECASE):
+        at += dt.timedelta(days=(WEEKDAYS.index(m.group(1).lower()[:3]) - at.weekday()) % 7)
+        if at <= local_now:
+            at += dt.timedelta(days=7)
+    elif at <= local_now:
+        at += dt.timedelta(days=1)
+    return at.astimezone(dt.timezone.utc)
+
+
+def cmd_paused(args) -> int:
+    """Records when triage can run again after Claude's usage limit (status/triage-paused), or clears it."""
+    if args.clear:
+        if PAUSED.exists():
+            PAUSED.unlink()
+            print("triage no longer paused")
+        return 0
+    text = Path(args.log).read_text(encoding="utf-8", errors="replace") if Path(args.log).exists() else ""
+    m = LIMIT_MESSAGE.search(text)
+    if not m:
+        print("not a usage limit")
+        return 1
+    now = dt.datetime.strptime(args.now, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc) if args.now \
+        else dt.datetime.now(dt.timezone.utc)
+    # A reset time that can't be read: try again in an hour.
+    at = parse_reset(m.group("when").strip(), now) or now + dt.timedelta(hours=1)
+    stamp = at.strftime("%Y-%m-%dT%H:%M:%SZ")
+    PAUSED.parent.mkdir(exist_ok=True)
+    PAUSED.write_text(f"{stamp}\n{m.group(0).strip()}\n", encoding="utf-8")
+    print(f"paused until {stamp}")
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -571,6 +641,11 @@ def main(argv=None) -> int:
     bc = sub.add_parser("brief-check")
     bc.add_argument("date", help="YYYY-MM-DD (local date of rules.yml timezone)")
     bc.set_defaults(fn=cmd_brief_check)
+    pa = sub.add_parser("paused")
+    pa.add_argument("--log", help="Claude's output: records the reset time if it hit a usage limit")
+    pa.add_argument("--clear", action="store_true", help="triage ran: no longer paused")
+    pa.add_argument("--now", help="override current time (YYYY-MM-DDTHH:MM:SSZ), for tests")
+    pa.set_defaults(fn=cmd_paused)
     b = sub.add_parser("build")
     b.add_argument("--strict", action="store_true", help="exit 1 if any task file is invalid")
     b.set_defaults(fn=cmd_build)

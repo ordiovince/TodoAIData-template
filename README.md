@@ -21,6 +21,8 @@ scripts/todoai.py             snapshot / validate / finalize / archive-stale / b
 ```
 
 Workflows: **Triage inbox** (on every capture), **Daily brief** (every morning), **Maintain indexes** (nightly
-7-day auto-archive and repairs), **Tests**.
+7-day auto-archive and repairs), **Tests**. If triage hits Claude's usage limit (5-hour or weekly), it records when the
+limit resets in `status/triage-paused` and leaves the captures in `inbox/`; at that time the app (TodoAI 1.0.30 or
+later) writes `requests/triage`, which starts triage again.
 
 Checks: `pip install -r requirements.txt && python3 -m unittest discover -s tests`.

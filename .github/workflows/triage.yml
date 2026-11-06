@@ -2,10 +2,12 @@ name: Triage inbox
 
 # Runs when the phone pushes a capture to inbox/. One run handles every capture present at its start;
 # captures that arrive mid-run queue one more run (the concurrency group keeps at most one pending).
+# When Claude's usage limit is reached, the run records when it resets in status/triage-paused and the
+# captures stay in inbox/; at that time the phone writes requests/triage, and that push starts this again.
 on:
   push:
     branches: [main]
-    paths: ["inbox/*.md"]
+    paths: ["inbox/*.md", "requests/triage"]
   workflow_dispatch:
 
 concurrency:
@@ -36,6 +38,10 @@ jobs:
         id: snap
         run: echo "count=$(python3 scripts/todoai.py snapshot)" >> "$GITHUB_OUTPUT"
 
+      - name: Nothing to triage, no longer paused
+        if: steps.snap.outputs.count == '0' && hashFiles('status/triage-paused') != ''
+        run: scripts/publish.sh "triage, resumed" python3 scripts/todoai.py paused --clear
+
       - uses: actions/setup-node@v4
         if: steps.snap.outputs.count != '0'
         with:
@@ -43,16 +49,29 @@ jobs:
 
       # The CLI directly, not anthropics/claude-code-action: the action rejects `push` events.
       - name: Triage with Claude
+        id: claude
         if: steps.snap.outputs.count != '0'
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
+          set -o pipefail
           npm install -g --silent @anthropic-ai/claude-code
           claude -p "Triage the captures listed in .triage/snapshot.txt (one capture id per line, file inbox/<id>.md), following CLAUDE.md exactly. Only create new files under tasks/ or .triage/skipped/, and edit a task file only when an edit request targets it. Finish by running python3 scripts/todoai.py validate until every new task file is valid." \
             --model opus \
             --max-turns 40 \
             --allowedTools "Read,Write,Edit,Glob,Grep,Bash(python3 scripts/todoai.py validate:*)" \
-            --disallowedTools "WebFetch,WebSearch"
+            --disallowedTools "WebFetch,WebSearch" 2>&1 | tee .triage/claude.log
+
+      # Claude's usage limit: record when it resets (the phone starts triage again then) and keep the captures.
+      # Any other failure leaves the run red as before.
+      - name: Pause until Claude's usage limit resets
+        if: failure() && steps.claude.outcome == 'failure'
+        run: |
+          python3 scripts/todoai.py paused --log .triage/claude.log
+          git checkout -q -- tasks && git clean -fdq -- tasks   # drop anything half-written; inbox/ is untouched
+          scripts/publish.sh "triage: paused, Claude's usage limit" python3 scripts/todoai.py paused --log .triage/claude.log
+          echo "::warning::Claude's usage limit: triage resumes at $(head -1 status/triage-paused) (UTC)"
+          exit 1
 
       - name: Publish tasks and rebuild indexes
         if: steps.snap.outputs.count != '0'
@@ -63,4 +82,4 @@ jobs:
           # New tasks plus tasks edited for edit requests, restored if the push has to be redone.
           { git ls-files --others --exclude-standard -- tasks; git diff --name-only -- tasks; } | xargs -r cp --parents -t .triage/out
           scripts/publish.sh "triage: ${{ steps.snap.outputs.count }} capture(s)" \
-            bash -c 'python3 scripts/todoai.py finalize && python3 scripts/todoai.py build'
+            bash -c 'python3 scripts/todoai.py finalize && python3 scripts/todoai.py build && python3 scripts/todoai.py paused --clear'
