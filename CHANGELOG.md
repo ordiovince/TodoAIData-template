@@ -12,7 +12,7 @@ The app's Brief card has "Write a new brief" (and "Write today's brief" when the
 marks the request answered so later runs skip.
 
 - Changed: `.github/workflows/brief.yml`, `scripts/todoai.py` (`brief-check --answered`), `scripts/publish.sh`, tests.
-- Needs TodoAI 1.0.33 or later. Keep your own schedule (cron line) in `brief.yml`.
+- Needs TodoAI 1.0.37 or later. Keep your own schedule (cron line) in `brief.yml`.
 
 ## November 2026: triage waits for Claude's usage limit
 
