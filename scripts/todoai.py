@@ -36,6 +36,7 @@ PEOPLE_DIR = TRIAGE / "people"      # Claude's suggestions, one JSON list per ca
 PEOPLE_FILE = ROOT / "people.json"  # pending suggestions, shown in the app's Review tab
 PEOPLE_MAX = 30
 BRIEF_KEEP_DAYS = 14
+BRIEF_REQUEST = "requests/brief"     # written by the app: "<date>", or "<date> again <time>" for a new brief
 
 INDEX_VERSION = 1
 ARCHIVE_AFTER = dt.timedelta(days=7)
@@ -533,10 +534,18 @@ def cmd_build(args) -> int:
 
 
 def cmd_brief_check(args) -> int:
-    """Gate the brief run: only briefs/<date>.md may be added, small and non-empty. Prunes old briefs."""
+    """Gate the brief run: only briefs/<date>.md may be added (or rewritten), small and non-empty. Prunes old briefs.
+
+    With --answered, a request for a new brief ("<date> again <time>" in requests/brief) is marked answered (the
+    line becomes the date alone), so later runs today skip again.
+    """
     expected = f"briefs/{args.date}.md"
-    changed = [p for p in git("diff", "--name-only", "HEAD").splitlines()]
-    stray = [p for p in git("ls-files", "--others", "--exclude-standard").splitlines() if p != expected]
+    request = ROOT / BRIEF_REQUEST
+    if args.answered and request.exists() and request.read_text(encoding="utf-8").startswith(f"{args.date} again"):
+        request.write_text(f"{args.date}\n", encoding="utf-8")
+    allowed = {expected, BRIEF_REQUEST}
+    changed = [p for p in git("diff", "--name-only", "HEAD").splitlines() if p not in allowed]
+    stray = [p for p in git("ls-files", "--others", "--exclude-standard").splitlines() if p not in allowed]
     if changed or stray:
         print("refusing to publish: the brief run touched other files:", *changed, *stray, sep="\n  ")
         return 1
@@ -639,6 +648,7 @@ def main(argv=None) -> int:
     a.add_argument("--now", help="override current time (YYYY-MM-DDTHH:MM:SSZ), for tests")
     a.set_defaults(fn=cmd_archive_stale)
     bc = sub.add_parser("brief-check")
+    bc.add_argument("--answered", action="store_true", help="mark a request for a new brief as answered")
     bc.add_argument("date", help="YYYY-MM-DD (local date of rules.yml timezone)")
     bc.set_defaults(fn=cmd_brief_check)
     pa = sub.add_parser("paused")

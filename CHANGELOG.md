@@ -5,6 +5,15 @@ on it and ask Claude to bring it up to date with this template, keeping your own
 `people.json`, `tasks/`, `archive/`, `inbox/`, `briefs/`, `index.json`, `status/`, `requests/` and the schedule in
 `.github/workflows/brief.yml`).
 
+## November 2026: a new brief on demand
+
+The app's Brief card has "Write a new brief" (and "Write today's brief" when there is none yet). It writes
+`<date> again <time>` to `requests/brief`; the brief workflow then writes today's brief again instead of skipping, and
+marks the request answered so later runs skip.
+
+- Changed: `.github/workflows/brief.yml`, `scripts/todoai.py` (`brief-check --answered`), `scripts/publish.sh`, tests.
+- Needs TodoAI 1.0.33 or later. Keep your own schedule (cron line) in `brief.yml`.
+
 ## November 2026: triage waits for Claude's usage limit
 
 Before, a capture shared after the 5-hour or weekly limit was reached failed triage and stayed on "Triaging" until the

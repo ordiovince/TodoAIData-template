@@ -4,7 +4,8 @@ name: Daily brief
 # The cron is in UTC (set by the setup interview from your wake-up time; GitHub has no time zones).
 # GitHub starts scheduled runs late (hours, at busy times), so the app also asks for the brief: from 6:00, if
 # today's is missing, it commits the date to requests/brief, and that push starts this workflow.
-# Every run skips when today's brief already exists.
+# Every run skips when today's brief already exists, unless the app asked for a new one ("New brief" in the
+# app writes "<date> again <time>" to requests/brief): then it is written again.
 on:
   schedule:
     - cron: "13 5 * * *"
@@ -43,7 +44,10 @@ jobs:
         run: |
           ZONE="$(python3 -c "import yaml; print(yaml.safe_load(open('rules.yml')).get('timezone') or 'UTC')")"
           DATE="$(TZ=$ZONE date +%F)"
-          if [ -f "briefs/$DATE.md" ]; then echo "briefs/$DATE.md exists, nothing to do"; echo "skip=true" >> "$GITHUB_OUTPUT"; fi
+          if [ -f "briefs/$DATE.md" ] && grep -q "^$DATE again" requests/brief 2>/dev/null; then
+            # Asked for a new brief: Claude writes it from scratch.
+            echo "a new brief was asked for"; rm "briefs/$DATE.md"
+          elif [ -f "briefs/$DATE.md" ]; then echo "briefs/$DATE.md exists, nothing to do"; echo "skip=true" >> "$GITHUB_OUTPUT"; fi
 
       - uses: actions/setup-node@v4
         if: steps.check.outputs.skip != 'true'
@@ -73,4 +77,4 @@ jobs:
         run: |
           mkdir -p .triage/brief/briefs && cp "briefs/${{ steps.brief.outputs.date }}.md" .triage/brief/briefs/
           scripts/publish.sh "brief: ${{ steps.brief.outputs.date }}" \
-            python3 scripts/todoai.py brief-check "${{ steps.brief.outputs.date }}"
+            python3 scripts/todoai.py brief-check --answered "${{ steps.brief.outputs.date }}"

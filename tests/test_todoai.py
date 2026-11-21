@@ -148,6 +148,31 @@ class BriefTests(Repo):
         self.write("tasks/20261020-080000-aaaa-1.md", task("20261020-080000-aaaa-1", priority="P0"))
         self.assertEqual(self.run_cmd("brief-check", "2026-10-28").returncode, 1)
 
+    def test_a_new_brief_replaces_todays_and_answers_the_request(self):
+        self.write("briefs/2026-10-28.md", "## Focus\n- Morning plan.\n")
+        self.write("requests/brief", "2026-10-28 again 2026-10-28T14:02:11Z\n")
+        self.commit_all()
+        # The run removed the morning's brief and Claude wrote a new one.
+        self.write("briefs/2026-10-28.md", "## Focus\n- Afternoon plan.\n")
+        r = self.run_cmd("brief-check", "--answered", "2026-10-28")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual((self.dir / "requests/brief").read_text(), "2026-10-28\n")  # later runs today skip
+
+    def test_a_new_brief_still_refuses_other_changes(self):
+        self.write("briefs/2026-10-28.md", "Morning")
+        self.write("requests/brief", "2026-10-28 again 2026-10-28T14:02:11Z\n")
+        self.commit_all()
+        self.write("briefs/2026-10-28.md", "Afternoon")
+        self.write("rules.yml", "changed: true\n")
+        self.assertEqual(self.run_cmd("brief-check", "--answered", "2026-10-28").returncode, 1)
+
+    def test_an_old_request_is_left_alone(self):
+        self.write("requests/brief", "2026-10-27 again 2026-10-27T18:00:00Z\n")
+        self.commit_all()
+        self.write("briefs/2026-10-28.md", "## Focus\n- Plan.\n")
+        self.assertEqual(self.run_cmd("brief-check", "--answered", "2026-10-28").returncode, 0)
+        self.assertEqual((self.dir / "requests/brief").read_text(), "2026-10-27 again 2026-10-27T18:00:00Z\n")
+
     def test_brief_check_refuses_an_empty_brief(self):
         self.write("briefs/2026-10-28.md", "  \n")
         self.assertEqual(self.run_cmd("brief-check", "2026-10-28").returncode, 1)
